@@ -1,0 +1,60 @@
+---
+- hosts: lxc-host
+  gather_facts: no
+  become_user: root
+  become: yes
+  
+  tasks:
+    - name: verify container
+      command: /snap/bin/lxc info {{ container_name }}
+      register: verify
+      ignore_errors: yes
+      tags:
+        - create
+
+    - name: network config template
+      template:
+        src: templates/network_config.j2
+        dest: ifcfg-eth0
+      when: verify.rc == 1
+      tags:
+        - create    
+
+    - name: create {{ container_name }}
+      command: /snap/bin/lxc launch --profile {{ profile }} images:centos/7 {{ container_name }}
+      when: verify.rc == 1
+      tags:
+        - create
+
+    - name: network stop 
+      command: /snap/bin/lxc exec {{ container_name }} -- systemctl stop network
+      when: verify.rc == 1
+      tags:
+        - create
+
+    - name: network {{ container_name }}
+      command: /snap/bin/lxc file push ifcfg-eth0 {{ container_name }}/etc/sysconfig/network-scripts/ifcfg-eth0
+      when: verify.rc == 1
+      tags:
+        - create
+
+    - name: network start 
+      command: /snap/bin/lxc exec {{ container_name }} -- systemctl start network
+      when: verify.rc == 1
+      tags:
+        - create
+
+    - name: cleanup 1
+      file:
+        path: ifcfg-eth0
+        state: absent
+      tags:
+        - create
+
+    - name: delete {{ container_name }}
+      lxd_container:
+        url: unix:/var/snap/lxd/common/lxd/unix.socket
+        name: "{{ container_name }}"
+        state: absent
+      tags:
+        - delete    
